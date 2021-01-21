@@ -1,11 +1,15 @@
 use crate::{
-    list::{
-        ImageInputReference, ImageOutputReference, PerObjectResourceBinding, RenderOpInputType, RenderPass,
-        ResourceBinding,
-    },
     mode::ModeData,
     output::OutputFrame,
-    renderer::{culling::CullingPassData, pipeline::create_custom_texture_bgl, uniforms::WrappedUniform},
+    renderer::{
+        culling::CullingPassData,
+        list::{
+            ImageInputReference, ImageOutputReference, PerObjectResourceBinding, RenderOpInputType, RenderPass,
+            ResourceBinding,
+        },
+        pipeline::create_custom_texture_bgl,
+        uniforms::WrappedUniform,
+    },
     Renderer,
 };
 use std::sync::Arc;

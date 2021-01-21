@@ -1,9 +1,8 @@
 use crate::{
     bind_merge::BindGroupBuilder,
-    datatypes::{Camera, CameraProjection},
+    datatypes::{Camera, CameraProjection, RenderPassRunRate},
     instruction::Instruction,
-    list::{RenderList, RenderPassRunRate},
-    renderer::{culling, list, uniforms::WrappedUniform, util::round_to_multiple},
+    renderer::{culling, list, list::RenderList, uniforms::WrappedUniform, util::round_to_multiple},
     statistics::RendererStatistics,
     OutputFrame, Renderer, RendererMode, RendererOutput,
 };
@@ -18,7 +17,7 @@ use wgpu::{
 
 pub fn render_loop<TLD: 'static>(
     renderer: Arc<Renderer<TLD>>,
-    render_list: RenderList,
+    render_list: Arc<dyn RenderList>,
     output: RendererOutput,
 ) -> impl Future<Output = RendererStatistics> {
     span_transfer!(_ -> render_create_span, INFO, "Render Loop Creation");
@@ -316,10 +315,22 @@ pub fn render_loop<TLD: 'static>(
             }
         }
 
-        renderer
-            .render_list_cache
-            .write()
-            .add_render_list(&renderer.device, render_list.resources);
+        let mut render_list_cache = renderer.render_list_cache.write();
+
+        let mut creation = list::RenderListCreationRecorder {
+            cache: &mut *render_list_cache,
+            device: &*renderer.device,
+            mode: renderer.mode,
+            object_count: 100,
+        };
+
+        let mut recorder = list::RenderListRecorder {
+            creation_rec: &mut creation,
+        };
+
+        render_list.render(&mut recorder);
+
+        drop(render_list_cache);
 
         let texture_2d_ready = texture_manager_2d.ready(&renderer.device);
         let texture_cube_ready = texture_manager_cube.ready(&renderer.device);
@@ -405,7 +416,7 @@ pub fn render_loop<TLD: 'static>(
         let object_manager = renderer.object_manager.read();
         let directional_light_manager = renderer.directional_light_manager.read();
 
-        let mut command_buffer_futures = FuturesOrdered::new();
+        let mut command_buffer_futures = FuturesOrdered::<switchyard::JoinHandle<wgpu::CommandBuffer>>::new();
 
         for light in directional_light_manager.values() {
             let mut cull_data = renderer.culling_pass.prepare(culling::CullingPassPrepareArgs {
@@ -466,25 +477,25 @@ pub fn render_loop<TLD: 'static>(
 
             let cull_data_arc = Arc::new(cull_data);
 
-            for render_pass in &render_list.passes {
-                if render_pass.desc.run_rate != RenderPassRunRate::PerShadow {
-                    continue;
-                }
-
-                let output = directional_light_manager.get_layer_view_arc(light.shadow_tex);
-
-                command_buffer_futures.push(renderer.yard.spawn(
-                    renderer.yard_priorites.compute_pool,
-                    renderer.yard_priorites.render_record_priority,
-                    list::render_single_render_pass(
-                        Arc::clone(&renderer),
-                        render_pass.clone(),
-                        OutputFrame::View(output),
-                        Arc::clone(&cull_data_arc),
-                        binding_data.clone(),
-                    ),
-                ));
-            }
+            // for render_pass in &render_list.passes {
+            //     if render_pass.desc.run_rate != RenderPassRunRate::PerShadow {
+            //         continue;
+            //     }
+            //
+            //     let output = directional_light_manager.get_layer_view_arc(light.shadow_tex);
+            //
+            //     command_buffer_futures.push(renderer.yard.spawn(
+            //         renderer.yard_priorites.compute_pool,
+            //         renderer.yard_priorites.render_record_priority,
+            //         list::render_single_render_pass(
+            //             Arc::clone(&renderer),
+            //             render_pass.clone(),
+            //             OutputFrame::View(output),
+            //             Arc::clone(&cull_data_arc),
+            //             binding_data.clone(),
+            //         ),
+            //     ));
+            // }
         }
 
         drop(directional_light_manager);
@@ -555,23 +566,23 @@ pub fn render_loop<TLD: 'static>(
 
             let cull_data_arc = Arc::new(cull_data);
 
-            for render_pass in &render_list.passes {
-                if render_pass.desc.run_rate != RenderPassRunRate::Once {
-                    continue;
-                }
-
-                command_buffer_futures.push(renderer.yard.spawn(
-                    renderer.yard_priorites.compute_pool,
-                    renderer.yard_priorites.render_record_priority,
-                    list::render_single_render_pass(
-                        Arc::clone(&renderer),
-                        render_pass.clone(),
-                        frame.clone(),
-                        Arc::clone(&cull_data_arc),
-                        binding_data.clone(),
-                    ),
-                ));
-            }
+            // for render_pass in &render_list.passes {
+            //     if render_pass.desc.run_rate != RenderPassRunRate::Once {
+            //         continue;
+            //     }
+            //
+            //     command_buffer_futures.push(renderer.yard.spawn(
+            //         renderer.yard_priorites.compute_pool,
+            //         renderer.yard_priorites.render_record_priority,
+            //         list::render_single_render_pass(
+            //             Arc::clone(&renderer),
+            //             render_pass.clone(),
+            //             frame.clone(),
+            //             Arc::clone(&cull_data_arc),
+            //             binding_data.clone(),
+            //         ),
+            //     ));
+            // }
         }
 
         drop((object_manager, global_resources));

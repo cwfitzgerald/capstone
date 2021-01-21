@@ -1,7 +1,7 @@
 use crate::{
     datatypes::ShaderHandle,
-    list::{ShaderSourceType, SourceShaderDescriptor},
     registry::ResourceRegistry,
+    renderer::list::{ShaderSourceType, SourceShaderDescriptor},
     ShaderError,
 };
 use parking_lot::RwLock;

@@ -1,8 +1,8 @@
 use crate::{
     datatypes::{
         AffineTransform, Camera, DirectionalLight, DirectionalLightChange, DirectionalLightHandle, Material,
-        MaterialChange, MaterialHandle, Mesh, MeshHandle, Object, ObjectHandle, PipelineHandle, ShaderHandle, Texture,
-        TextureHandle,
+        MaterialChange, MaterialHandle, Mesh, MeshHandle, Object, ObjectHandle, RenderPipelineHandle, ShaderHandle,
+        Texture, TextureHandle,
     },
     RendererOptions,
 };
@@ -72,7 +72,7 @@ pub enum Instruction {
         handle: ShaderHandle,
     },
     RemovePipeline {
-        handle: PipelineHandle,
+        handle: RenderPipelineHandle,
     },
     SetOptions {
         options: RendererOptions,

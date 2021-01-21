@@ -1,14 +1,20 @@
 use crate::{
     datatypes::{
         AffineTransform, Camera, DirectionalLight, DirectionalLightChange, DirectionalLightHandle, Material,
-        MaterialChange, MaterialHandle, Mesh, MeshHandle, Object, ObjectHandle, Pipeline, PipelineHandle, ShaderHandle,
-        Texture, TextureHandle,
+        MaterialChange, MaterialHandle, Mesh, MeshHandle, Object, ObjectHandle, RenderPipeline, RenderPipelineHandle,
+        ShaderHandle, Texture, TextureHandle,
     },
     instruction::{Instruction, InstructionStreamPair},
-    list::{RenderList, SourceShaderDescriptor},
     renderer::{
-        info::ExtendedAdapterInfo, material::MaterialManager, mesh::MeshManager, object::ObjectManager,
-        pipeline::PipelineManager, resources::RendererGlobalResources, shaders::ShaderManager, texture::TextureManager,
+        info::ExtendedAdapterInfo,
+        list::{RenderList, RenderListCache, SourceShaderDescriptor},
+        material::MaterialManager,
+        mesh::MeshManager,
+        object::ObjectManager,
+        pipeline::PipelineManager,
+        resources::RendererGlobalResources,
+        shaders::ShaderManager,
+        texture::TextureManager,
     },
     statistics::RendererStatistics,
     JobPriorities, RendererBuilder, RendererInitializationError, RendererMode, RendererOptions, RendererOutput,
@@ -36,15 +42,7 @@ mod light {
     pub use directional::*;
 }
 pub mod limits;
-mod list {
-    mod cache;
-    mod forward;
-    mod resource;
-
-    pub(crate) use cache::*;
-    pub(crate) use forward::*;
-    pub use resource::*;
-}
+pub(crate) mod list;
 mod material;
 mod mesh;
 mod object;
@@ -95,7 +93,7 @@ where
     material_manager: RwLock<MaterialManager>,
     object_manager: RwLock<ObjectManager>,
     directional_light_manager: RwLock<light::DirectionalLightManager>,
-    render_list_cache: RwLock<list::RenderListCache>,
+    render_list_cache: RwLock<RenderListCache>,
 
     gpu_copy: copy::GpuCopy,
     culling_pass: culling::CullingPass,
@@ -274,11 +272,14 @@ impl<TLD: 'static> Renderer<TLD> {
             .push(Instruction::RemoveShader { handle });
     }
 
-    pub fn add_pipeline(self: &Arc<Self>, pipeline: Pipeline) -> impl Future<Output = PipelineHandle> {
+    pub fn add_render_pipeline(
+        self: &Arc<Self>,
+        pipeline: RenderPipeline,
+    ) -> impl Future<Output = RenderPipelineHandle> {
         self.pipeline_manager.allocate_async_insert(Arc::clone(self), pipeline)
     }
 
-    pub fn remove_pipeline(&self, handle: PipelineHandle) {
+    pub fn remove_pipeline(&self, handle: RenderPipelineHandle) {
         self.instructions
             .producer
             .lock()
@@ -313,7 +314,11 @@ impl<TLD: 'static> Renderer<TLD> {
             .push(Instruction::ClearBackgroundTexture)
     }
 
-    pub fn render(self: &Arc<Self>, list: RenderList, output: RendererOutput) -> JoinHandle<RendererStatistics> {
+    pub fn render(
+        self: &Arc<Self>,
+        list: Arc<dyn RenderList>,
+        output: RendererOutput,
+    ) -> JoinHandle<RendererStatistics> {
         let this = Arc::clone(self);
         self.yard.spawn_local(
             self.yard_priorites.compute_pool,

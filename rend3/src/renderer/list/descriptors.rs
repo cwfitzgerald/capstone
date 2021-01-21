@@ -1,4 +1,7 @@
-use crate::datatypes::{ClearColor, TextureHandle};
+use crate::{
+    datatypes::{ClearColor, TextureHandle},
+    renderer::list::RenderListImageHandle,
+};
 pub use wgpu::{Color, LoadOp};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -74,13 +77,13 @@ pub type BufferUsage = wgpu::BufferUsage;
 pub enum ImageReference {
     OutputImage,
     Handle(TextureHandle),
-    Custom(String),
+    Custom(RenderListImageHandle),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ImageInputReference {
     Handle(TextureHandle),
-    Custom(String),
+    Custom(RenderListImageHandle),
 }
 
 #[derive(Debug, Clone)]
@@ -99,12 +102,14 @@ pub struct DepthOutput {
 #[derive(Debug, Clone)]
 pub enum ImageOutputReference {
     OutputImage,
-    Custom(String),
+    Custom(RenderListImageHandle),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageResourceDescriptor {
+    pub label: Option<String>,
     pub resolution: [u32; 2],
+    pub mips: u32,
     pub format: ImageFormat,
     pub samples: u32,
     pub usage: ImageUsage,
@@ -116,6 +121,35 @@ pub enum BufferReference<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BufferResourceDescriptor {
+    pub label: Option<String>,
     pub size: u64,
     pub usage: BufferUsage,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BufferResourceInitDescriptor {
+    pub label: Option<String>,
+    pub data: Vec<u8>,
+    pub usage: BufferUsage,
+}
+
+impl BufferResourceInitDescriptor {
+    pub fn into_base_descriptor_data(self) -> (BufferResourceDescriptor, Vec<u8>) {
+        let desc = BufferResourceDescriptor {
+            label: self.label,
+            size: self.data.len() as u64,
+            usage: self.usage,
+        };
+
+        let data = self.data;
+
+        (desc, data)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RenderRoutineTarget {
+    Shadow,
+    Image(RenderListImageHandle),
+    None,
 }

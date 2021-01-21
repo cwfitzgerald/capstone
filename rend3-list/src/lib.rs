@@ -1,7 +1,7 @@
 use rend3::{
     datatypes::{
-        DepthCompare, Pipeline, PipelineBindingType, PipelineDepthState, PipelineHandle, PipelineInputType,
-        PipelineOutputAttachment, ShaderHandle,
+        DepthCompare, PipelineBindingType, PipelineDepthState, PipelineHandle, PipelineInputType,
+        PipelineOutputAttachment, RenderPipeline, ShaderHandle,
     },
     list::{
         Color, DepthOutput, ImageFormat, ImageInputReference, ImageOutput, ImageOutputReference,
@@ -160,7 +160,7 @@ impl DefaultPipelines {
             ],
         };
 
-        let shadow_depth_pipeline = renderer.add_pipeline(Pipeline {
+        let shadow_depth_pipeline = renderer.add_render_pipeline(RenderPipeline {
             run_rate: RenderPassRunRate::PerShadow,
             input: PipelineInputType::Models3d,
             outputs: vec![],
@@ -174,7 +174,7 @@ impl DefaultPipelines {
             samples: 1,
         });
 
-        let depth_pipeline = renderer.add_pipeline(Pipeline {
+        let depth_pipeline = renderer.add_render_pipeline(RenderPipeline {
             run_rate: RenderPassRunRate::Once,
             input: PipelineInputType::Models3d,
             outputs: vec![
@@ -197,7 +197,7 @@ impl DefaultPipelines {
             samples: 1,
         });
 
-        let skybox_pipeline = renderer.add_pipeline(Pipeline {
+        let skybox_pipeline = renderer.add_render_pipeline(RenderPipeline {
             run_rate: RenderPassRunRate::Once,
             input: PipelineInputType::FullscreenTriangle,
             outputs: vec![
@@ -224,7 +224,7 @@ impl DefaultPipelines {
             samples: 1,
         });
 
-        let opaque_pipeline = renderer.add_pipeline(Pipeline {
+        let opaque_pipeline = renderer.add_render_pipeline(RenderPipeline {
             run_rate: RenderPassRunRate::Once,
             input: PipelineInputType::Models3d,
             outputs: vec![
@@ -247,7 +247,7 @@ impl DefaultPipelines {
             samples: 1,
         });
 
-        let blit_pipeline = renderer.add_pipeline(Pipeline {
+        let blit_pipeline = renderer.add_render_pipeline(RenderPipeline {
             run_rate: RenderPassRunRate::Once,
             input: PipelineInputType::FullscreenTriangle,
             outputs: vec![PipelineOutputAttachment {

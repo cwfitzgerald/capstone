@@ -1,26 +1,29 @@
 use crate::{
-    datatypes::PipelineHandle,
-    list::{DepthOutput, ImageOutput, PerObjectResourceBinding, ResourceBinding},
+    datatypes::{ComputePipelineHandle, RenderPipelineHandle},
+    renderer::list::{DepthOutput, ImageOutput, PerObjectResourceBinding, ResourceBinding},
 };
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum RenderPassRunRate {
-    /// Run this RenderPassSet once for every shadow, the output texture being the shadow map.
-    PerShadow,
-    /// Run this RenderPassSet once. Output texture is the swapchain frame.
-    Once,
+#[derive(Debug, Clone)]
+pub struct ComputePassDescriptor {
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ComputeOpDescriptor {
+    pub pipeline: ComputePipelineHandle,
+    pub per_op_bindings: Vec<ResourceBinding>,
 }
 
 #[derive(Debug, Clone)]
 pub struct RenderPassDescriptor {
-    pub run_rate: RenderPassRunRate,
+    pub name: Option<String>,
     pub outputs: Vec<ImageOutput>,
     pub depth: Option<DepthOutput>,
 }
 
 #[derive(Debug, Clone)]
 pub struct RenderOpDescriptor {
-    pub pipeline: PipelineHandle,
+    pub pipeline: RenderPipelineHandle,
     pub input: RenderOpInputType,
     pub per_op_bindings: Vec<ResourceBinding>,
     pub per_object_bindings: Vec<PerObjectResourceBinding>,
@@ -31,7 +34,6 @@ pub enum RenderOpInputType {
     /// No bound vertex inputs, just a simple `draw(0..3)`
     FullscreenTriangle,
     /// Render all 3D models.
-    // TODO: Filtering
     Models3D,
 }
 

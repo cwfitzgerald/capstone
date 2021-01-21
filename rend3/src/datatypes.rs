@@ -1,4 +1,4 @@
-use crate::list::{ImageFormat, RenderPassRunRate};
+use crate::renderer::list::ImageFormat;
 use glam::{Mat3, Mat4, Vec2, Vec3, Vec3A, Vec4};
 use itertools::Itertools;
 use std::mem;
@@ -8,7 +8,7 @@ pub use wgpu::{Color as ClearColor, LoadOp as PipelineLoadOp};
 #[macro_export]
 #[doc(hidden)]
 macro_rules! declare_handle {
-    ($($name:ident),*) => {$(
+    ($($name:ident),* $(,)?) => {$(
         #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
         pub struct $name(pub(crate) usize);
 
@@ -27,7 +27,8 @@ declare_handle!(
     ObjectHandle,
     DirectionalLightHandle,
     ShaderHandle,
-    PipelineHandle
+    RenderPipelineHandle,
+    ComputePipelineHandle,
 );
 
 macro_rules! changeable_struct {
@@ -984,8 +985,14 @@ pub struct PipelineDepthState {
     pub compare: DepthCompare,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum RenderPassRunRate {
+    PerShadow,
+    Once,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Pipeline {
+pub struct RenderPipeline {
     // TODO: Alpha
     pub run_rate: RenderPassRunRate,
     pub input: PipelineInputType,

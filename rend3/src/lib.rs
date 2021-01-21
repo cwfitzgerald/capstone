@@ -82,7 +82,6 @@ mod builder;
 pub mod datatypes;
 mod instruction;
 mod jobs;
-pub mod list;
 mod mode;
 mod options;
 mod output;

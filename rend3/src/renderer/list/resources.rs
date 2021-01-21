@@ -1,4 +1,4 @@
-use crate::list::{BufferResourceDescriptor, ImageResourceDescriptor};
+use crate::renderer::list::{BufferResourceDescriptor, ImageResourceDescriptor};
 use std::sync::Arc;
 use wgpu::{Buffer, Texture, TextureView};
 

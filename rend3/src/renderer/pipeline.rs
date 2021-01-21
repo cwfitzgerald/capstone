@@ -1,6 +1,7 @@
 use crate::{
-    datatypes::{DepthCompare, Pipeline, PipelineBindingType, PipelineHandle, PipelineInputType},
-    list::RenderPassRunRate,
+    datatypes::{
+        DepthCompare, PipelineBindingType, PipelineInputType, RenderPassRunRate, RenderPipeline, RenderPipelineHandle,
+    },
     registry::ResourceRegistry,
     renderer::mesh::{
         VERTEX_COLOR_SIZE, VERTEX_MATERIAL_INDEX_SIZE, VERTEX_NORMAL_SIZE, VERTEX_POSITION_SIZE, VERTEX_TANGENT_SIZE,
@@ -14,14 +15,14 @@ use std::{future::Future, sync::Arc};
 use wgpu::{
     BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BlendState, ColorTargetState,
     ColorWrite, CompareFunction, CullMode, DepthBiasState, DepthStencilState, Device, FragmentState, FrontFace,
-    MultisampleState, PipelineLayoutDescriptor, PrimitiveState, PrimitiveTopology, PushConstantRange, RenderPipeline,
+    MultisampleState, PipelineLayoutDescriptor, PrimitiveState, PrimitiveTopology, PushConstantRange,
     RenderPipelineDescriptor, ShaderStage, StencilState, TextureSampleType, TextureViewDimension, VertexState,
 };
 
 #[derive(Debug)]
 pub struct CompiledPipeline {
-    desc: Pipeline,
-    inner: Arc<RenderPipeline>,
+    desc: RenderPipeline,
+    inner: Arc<wgpu::RenderPipeline>,
     uses_2d: bool,
     uses_cube: bool,
 }
@@ -40,24 +41,24 @@ impl PipelineManager {
     pub fn allocate_async_insert<TD>(
         self: &Arc<Self>,
         renderer: Arc<Renderer<TD>>,
-        pipeline_desc: Pipeline,
-    ) -> impl Future<Output = PipelineHandle>
+        pipeline_desc: RenderPipeline,
+    ) -> impl Future<Output = RenderPipelineHandle>
     where
         TD: 'static,
     {
         let handle = self.registry.read().allocate();
-        let update_fut = self.update_pipeline(renderer, PipelineHandle(handle), pipeline_desc);
+        let update_fut = self.update_pipeline(renderer, RenderPipelineHandle(handle), pipeline_desc);
         async move {
             update_fut.await;
-            PipelineHandle(handle)
+            RenderPipelineHandle(handle)
         }
     }
 
     pub fn update_pipeline<TD>(
         self: &Arc<Self>,
         renderer: Arc<Renderer<TD>>,
-        handle: PipelineHandle,
-        pipeline_desc: Pipeline,
+        handle: RenderPipelineHandle,
+        pipeline_desc: RenderPipeline,
     ) -> impl Future<Output = ()>
     where
         TD: 'static,
@@ -225,7 +226,7 @@ impl PipelineManager {
 
                 let fragment_stage_module = pipeline_desc.fragment.map(|handle| renderer.shader_manager.get(handle));
 
-                let pipeline = renderer.device.create_render_pipeline(&RenderPipelineDescriptor {
+                let wgpu_pipeline = renderer.device.create_render_pipeline(&RenderPipelineDescriptor {
                     label: None,
                     layout: Some(&pipeline_layout),
                     vertex: VertexState {
@@ -263,7 +264,7 @@ impl PipelineManager {
                     handle.0,
                     CompiledPipeline {
                         desc: pipeline_desc,
-                        inner: Arc::new(pipeline),
+                        inner: Arc::new(wgpu_pipeline),
                         uses_2d,
                         uses_cube,
                     },
@@ -282,17 +283,21 @@ impl PipelineManager {
         for (handle, pipeline) in self.registry.read().iter() {
             let dirty = dirty_2d && pipeline.uses_2d || dirty_cube && pipeline.uses_cube;
             if dirty {
-                futs.push(self.update_pipeline(Arc::clone(renderer), PipelineHandle(*handle), pipeline.desc.clone()))
+                futs.push(self.update_pipeline(
+                    Arc::clone(renderer),
+                    RenderPipelineHandle(*handle),
+                    pipeline.desc.clone(),
+                ))
             }
         }
         async move { while futs.next().await.is_some() {} }
     }
 
-    pub fn get_arc(&self, handle: PipelineHandle) -> Arc<RenderPipeline> {
+    pub fn get_arc(&self, handle: RenderPipelineHandle) -> Arc<wgpu::RenderPipeline> {
         Arc::clone(&self.registry.read().get(handle.0).inner)
     }
 
-    pub fn remove(&self, handle: PipelineHandle) {
+    pub fn remove(&self, handle: RenderPipelineHandle) {
         self.registry.write().remove(handle.0);
     }
 }

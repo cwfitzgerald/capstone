@@ -1,6 +1,6 @@
-use crate::{
+use crate::renderer::{
     list::{ShaderSourceStage, ShaderSourceType, SourceShaderDescriptor},
-    renderer::shaders::ShaderManager,
+    shaders::ShaderManager,
 };
 use std::{future::Future, mem::size_of, num::NonZeroU64, ops::Range};
 use wgpu::{

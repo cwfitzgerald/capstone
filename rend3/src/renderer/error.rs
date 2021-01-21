@@ -1,4 +1,4 @@
-use crate::list::SourceShaderDescriptor;
+use crate::renderer::list::SourceShaderDescriptor;
 use std::io;
 use thiserror::Error;
 use wgpu::Features;

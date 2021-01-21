@@ -1,8 +1,12 @@
 pub use crate::renderer::culling::cpu::CPUDrawCall;
 use crate::{
-    list::{ShaderSourceStage, ShaderSourceType, SourceShaderDescriptor},
     mode::ModeData,
-    renderer::{camera::CameraManager, object::ObjectManager, shaders::ShaderManager},
+    renderer::{
+        camera::CameraManager,
+        list::{ShaderSourceStage, ShaderSourceType, SourceShaderDescriptor},
+        object::ObjectManager,
+        shaders::ShaderManager,
+    },
     JobPriorities, RendererMode,
 };
 use futures::future::Either;
