@@ -321,11 +321,11 @@ pub fn render_loop<TLD: 'static>(
             cache: &mut *render_list_cache,
             device: &*renderer.device,
             mode: renderer.mode,
-            object_count: 100,
         };
 
         let mut recorder = list::RenderListRecorder {
             creation_rec: &mut creation,
+            routines: Vec::new(),
         };
 
         render_list.render(&mut recorder);

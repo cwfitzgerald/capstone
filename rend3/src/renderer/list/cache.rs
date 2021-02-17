@@ -21,11 +21,11 @@ impl RenderListCache {
         }
     }
 
-    pub fn get_buffer(&self, _: &RenderListBufferHandle) -> &Buffer {
-        unimplemented!()
+    pub fn get_buffer(&self, handle: &RenderListBufferHandle) -> &Buffer {
+        &*self.buffers.get(handle.0).buffer
     }
 
-    pub fn get_image(&self, _: &RenderListImageHandle) -> &TextureView {
-        unimplemented!()
+    pub fn get_image(&self, handle: &RenderListImageHandle) -> &TextureView {
+        &*self.images.get(handle.0).image_view
     }
 }

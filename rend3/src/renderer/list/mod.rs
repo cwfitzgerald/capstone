@@ -28,17 +28,15 @@ pub trait RenderList: Send + Sync {
 
 crate::declare_handle!(RenderListBufferHandle, RenderListImageHandle);
 
-#[derive(Debug)]
 pub struct RenderListCreationRecorder<'a> {
     pub(crate) device: &'a Device,
     pub(crate) cache: &'a mut RenderListCache,
     pub(crate) mode: RendererMode,
-    pub(crate) object_count: usize,
 }
 
-#[derive(Debug)]
 pub struct RenderListRecorder<'a, 'b> {
     pub(crate) creation_rec: &'b mut RenderListCreationRecorder<'a>,
+    pub(crate) routines: Vec<RenderRoutine>,
 }
 
 impl<'a, 'b> Deref for RenderListRecorder<'a, 'b> {
@@ -55,25 +53,9 @@ impl<'a, 'b> DerefMut for RenderListRecorder<'a, 'b> {
     }
 }
 
-#[derive(Debug)]
-pub struct RenderListRoutineRecorder<'a, 'b, 'c> {
-    pub(crate) list_rec: &'c mut RenderListRecorder<'a, 'b>,
+pub struct RenderListRoutineRecorder {
     pub(crate) target: RenderRoutineTarget,
     pub(crate) passes: Vec<Pass>,
-}
-
-impl<'a, 'b, 'c> Deref for RenderListRoutineRecorder<'a, 'b, 'c> {
-    type Target = RenderListRecorder<'a, 'b>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.list_rec
-    }
-}
-
-impl<'a, 'b, 'c> DerefMut for RenderListRoutineRecorder<'a, 'b, 'c> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.list_rec
-    }
 }
 
 impl<'a> RenderListCreationRecorder<'a> {
@@ -183,32 +165,21 @@ impl<'a> RenderListCreationRecorder<'a> {
 impl<'a, 'b> RenderListRecorder<'a, 'b> {
     pub fn add_render_routine<Func>(
         &mut self,
-        filter: ObjectFilter,
-        frustum_culling: bool,
+        processing: ObjectProcessing,
         target: RenderRoutineTarget,
-        mut function: Func,
+        function: Func,
     ) where
-        Func: FnMut(&mut RenderListRoutineRecorder<'a, 'b, '_>, usize, RendererMode),
+        Func: FnMut(&mut RenderListRoutineRecorder, usize, RendererMode) + 'static,
     {
-        // TODO: filter (#56)
-        let _ = filter;
-        // TODO: hook up frustum culling
-        let _ = frustum_culling;
-
-        let object_count = self.creation_rec.object_count;
-        let mode = self.creation_rec.mode;
-
-        let mut recorder = RenderListRoutineRecorder {
-            list_rec: self,
+        self.routines.push(RenderRoutine {
+            processing,
             target,
-            passes: Vec::new(),
-        };
-
-        function(&mut recorder, object_count, mode);
+            routine: Box::new(function),
+        })
     }
 }
 
-impl<'a, 'b, 'c> RenderListRoutineRecorder<'a, 'b, 'c> {
+impl RenderListRoutineRecorder {
     pub fn add_render_pass(&mut self, desc: RenderPassDescriptor) {
         self.passes.push(Pass::Render(RenderPass { desc, ops: Vec::new() }))
     }
@@ -236,6 +207,12 @@ impl<'a, 'b, 'c> RenderListRoutineRecorder<'a, 'b, 'c> {
             .ops
             .push(desc);
     }
+}
+
+pub(crate) struct RenderRoutine {
+    pub processing: ObjectProcessing,
+    pub target: RenderRoutineTarget,
+    pub routine: Box<dyn FnMut(&mut RenderListRoutineRecorder, usize, RendererMode)>,
 }
 
 #[derive(Debug)]
@@ -272,4 +249,15 @@ pub(crate) struct ComputePass {
     pub ops: Vec<ComputeOpDescriptor>,
 }
 
+pub struct ObjectProcessing {
+    filter: ObjectFilter,
+    frustum_culling: bool,
+    object_sorting: ObjectSortingStyle,
+}
+
 pub struct ObjectFilter;
+
+pub enum ObjectSortingStyle {
+    FrontToBack,
+    BackToFront,
+}
