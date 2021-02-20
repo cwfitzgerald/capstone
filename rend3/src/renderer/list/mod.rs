@@ -1,7 +1,7 @@
 use crate::RendererMode;
-pub use cache::*;
+pub(crate) use cache::*;
 pub use descriptors::*;
-pub use forward::*;
+pub(crate) use forward::*;
 pub use passes::*;
 use resources::{BufferResource, ImageResource};
 use std::{
@@ -248,7 +248,6 @@ pub(crate) struct ComputePass {
     pub desc: ComputePassDescriptor,
     pub ops: Vec<ComputeOpDescriptor>,
 }
-
 pub struct ObjectProcessing {
     filter: ObjectFilter,
     frustum_culling: bool,
@@ -258,6 +257,7 @@ pub struct ObjectProcessing {
 pub struct ObjectFilter;
 
 pub enum ObjectSortingStyle {
+    None,
     FrontToBack,
     BackToFront,
 }

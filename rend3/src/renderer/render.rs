@@ -4,7 +4,7 @@ use crate::{
     instruction::Instruction,
     renderer::{culling, list, list::RenderList, uniforms::WrappedUniform, util::round_to_multiple},
     statistics::RendererStatistics,
-    OutputFrame, Renderer, RendererMode, RendererOutput,
+    Renderer, RendererMode, RendererOutput,
 };
 use futures::{stream::FuturesOrdered, StreamExt};
 use std::{borrow::Cow, future::Future, sync::Arc};
@@ -329,6 +329,8 @@ pub fn render_loop<TLD: 'static>(
         };
 
         render_list.render(&mut recorder);
+
+        let routines = recorder.routines;
 
         drop(render_list_cache);
 

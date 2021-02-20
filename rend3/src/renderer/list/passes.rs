@@ -1,7 +1,15 @@
+use glam::UVec3;
+
 use crate::{
     datatypes::{ComputePipelineHandle, RenderPipelineHandle},
-    renderer::list::{DepthOutput, ImageOutput, PerObjectResourceBinding, ResourceBinding},
+    renderer::list::{DepthOutput, ImageOutput, PerObjectResourceBinding, ResourceBinding, RenderListBufferHandle},
 };
+
+#[derive(Debug, Clone)]
+pub struct BufferReference {
+    pub buffer: RenderListBufferHandle,
+    pub offset: usize,
+}
 
 #[derive(Debug, Clone)]
 pub struct ComputePassDescriptor {
@@ -12,6 +20,17 @@ pub struct ComputePassDescriptor {
 pub struct ComputeOpDescriptor {
     pub pipeline: ComputePipelineHandle,
     pub per_op_bindings: Vec<ResourceBinding>,
+    pub size: UVec3,
+}
+
+#[derive(Debug, Clone)]
+pub enum ComputeOpDispatchType {
+    Cpu {
+        size: UVec3,
+    },
+    Gpu {
+        indirect_buffer: BufferReference,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -24,9 +43,21 @@ pub struct RenderPassDescriptor {
 #[derive(Debug, Clone)]
 pub struct RenderOpDescriptor {
     pub pipeline: RenderPipelineHandle,
-    pub input: RenderOpInputType,
     pub per_op_bindings: Vec<ResourceBinding>,
     pub per_object_bindings: Vec<PerObjectResourceBinding>,
+    pub draw_type: RenderOpDrawType,
+}
+
+#[derive(Debug, Clone)]
+pub enum RenderOpDrawType {
+    Cpu {
+        input: RenderOpInputType,
+    },
+    Gpu {
+        indirect_buffer: BufferReference,
+        count_buffer: BufferReference,
+        max_count: usize,
+    }
 }
 
 #[derive(Debug, Clone)]

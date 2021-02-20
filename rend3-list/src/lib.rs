@@ -1,13 +1,13 @@
 use rend3::{
     datatypes::{
-        DepthCompare, PipelineBindingType, PipelineDepthState, PipelineHandle, PipelineInputType,
-        PipelineOutputAttachment, RenderPipeline, ShaderHandle,
+        DepthCompare, PipelineBindingType, PipelineDepthState, PipelineInputType, PipelineOutputAttachment,
+        RenderPipeline, RenderPipelineHandle, ShaderHandle,
     },
-    list::{
-        Color, DepthOutput, ImageFormat, ImageInputReference, ImageOutput, ImageOutputReference,
-        ImageResourceDescriptor, ImageUsage, LoadOp, PerObjectResourceBinding, RenderList, RenderOpDescriptor,
-        RenderOpInputType, RenderPassDescriptor, RenderPassRunRate, ResourceBinding, ShaderSourceStage,
-        ShaderSourceType, SourceShaderDescriptor,
+    renderer::list::{
+        self, Color, DepthOutput, ImageFormat, ImageInputReference, ImageOutput, ImageOutputReference,
+        ImageResourceDescriptor, ImageUsage, LoadOp, ObjectProcessing, PerObjectResourceBinding, RenderList,
+        RenderListCreationRecorder, RenderListRecorder, RenderOpDescriptor, RenderOpInputType, RenderPassDescriptor,
+        ResourceBinding, ShaderSourceStage, ShaderSourceType, SourceShaderDescriptor, UnsynchronizedRenderList,
     },
     Renderer, RendererMode, SWAPCHAIN_FORMAT,
 };
@@ -281,6 +281,28 @@ impl DefaultPipelines {
     }
 }
 
+pub struct DefaultRenderList {}
+
+impl UnsynchronizedRenderList for DefaultRenderList {
+    fn init(&mut self, recorder: &mut RenderListCreationRecorder<'_>) {
+        todo!()
+    }
+
+    fn render(&mut self, recorder: &mut RenderListRecorder<'_, '_>) {
+        recorder.add_render_routine(
+            list::ObjectProcessing {
+                filter: list::ObjectFilter,
+                frustum_culling: false,
+                object_sorting: list::ObjectSortingStyle::None,
+            },
+            list::RenderRoutineTarget::Shadow,
+            |recorder, count, mode| {
+                recorder.add_cpu_compute_op(desc)
+            },
+        )
+    }
+}
+
 pub fn default_render_list(mode: RendererMode, resolution: [u32; 2], pipelines: &DefaultPipelines) -> RenderList {
     let (depth_bindings, depth_per_obj_bindings) = match mode {
         RendererMode::CPUPowered => (
@@ -329,7 +351,6 @@ pub fn default_render_list(mode: RendererMode, resolution: [u32; 2], pipelines: 
     let mut list = RenderList::new();
 
     list.add_render_pass(RenderPassDescriptor {
-        run_rate: RenderPassRunRate::PerShadow,
         outputs: vec![],
         depth: Some(DepthOutput {
             clear: LoadOp::Clear(1.0),

@@ -42,7 +42,7 @@ mod light {
     pub use directional::*;
 }
 pub mod limits;
-pub(crate) mod list;
+pub mod list;
 mod material;
 mod mesh;
 mod object;
