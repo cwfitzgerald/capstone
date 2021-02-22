@@ -1003,3 +1003,10 @@ pub struct RenderPipeline {
     pub bindings: Vec<PipelineBindingType>,
     pub samples: u8,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComputePipeline {
+    // TODO: Alpha
+    pub compute: ShaderHandle,
+    pub bindings: Vec<PipelineBindingType>,
+}

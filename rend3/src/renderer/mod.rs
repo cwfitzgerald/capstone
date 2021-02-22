@@ -1,8 +1,8 @@
 use crate::{
     datatypes::{
-        AffineTransform, Camera, DirectionalLight, DirectionalLightChange, DirectionalLightHandle, Material,
-        MaterialChange, MaterialHandle, Mesh, MeshHandle, Object, ObjectHandle, RenderPipeline, RenderPipelineHandle,
-        ShaderHandle, Texture, TextureHandle,
+        AffineTransform, Camera, ComputePipeline, ComputePipelineHandle, DirectionalLight, DirectionalLightChange,
+        DirectionalLightHandle, Material, MaterialChange, MaterialHandle, Mesh, MeshHandle, Object, ObjectHandle,
+        RenderPipeline, RenderPipelineHandle, ShaderHandle, Texture, TextureHandle,
     },
     instruction::{Instruction, InstructionStreamPair},
     renderer::{
@@ -11,7 +11,7 @@ use crate::{
         material::MaterialManager,
         mesh::MeshManager,
         object::ObjectManager,
-        pipeline::PipelineManager,
+        pipeline::{ComputePipelineManager, RenderPipelineManager},
         resources::RendererGlobalResources,
         shaders::ShaderManager,
         texture::TextureManager,
@@ -86,7 +86,8 @@ where
     buffer_manager: Mutex<AutomatedBufferManager>,
     global_resources: RwLock<RendererGlobalResources>,
     shader_manager: Arc<ShaderManager>,
-    pipeline_manager: Arc<PipelineManager>,
+    compute_pipeline_manager: Arc<ComputePipelineManager>,
+    render_pipeline_manager: Arc<RenderPipelineManager>,
     mesh_manager: RwLock<MeshManager>,
     texture_manager_2d: RwLock<TextureManager>,
     texture_manager_cube: RwLock<TextureManager>,
@@ -276,14 +277,30 @@ impl<TLD: 'static> Renderer<TLD> {
         self: &Arc<Self>,
         pipeline: RenderPipeline,
     ) -> impl Future<Output = RenderPipelineHandle> {
-        self.pipeline_manager.allocate_async_insert(Arc::clone(self), pipeline)
+        self.render_pipeline_manager
+            .allocate_async_insert(Arc::clone(self), pipeline)
     }
 
-    pub fn remove_pipeline(&self, handle: RenderPipelineHandle) {
+    pub fn remove_render_pipeline(&self, handle: RenderPipelineHandle) {
         self.instructions
             .producer
             .lock()
-            .push(Instruction::RemovePipeline { handle });
+            .push(Instruction::RemoveRenderPipeline { handle });
+    }
+
+    pub fn add_compute_pipeline(
+        self: &Arc<Self>,
+        pipeline: ComputePipeline,
+    ) -> impl Future<Output = ComputePipelineHandle> {
+        self.compute_pipeline_manager
+            .allocate_async_insert(Arc::clone(self), pipeline)
+    }
+
+    pub fn remove_compute_pipeline(&self, handle: ComputePipelineHandle) {
+        self.instructions
+            .producer
+            .lock()
+            .push(Instruction::RemoveComputePipeline { handle });
     }
 
     pub fn set_options(&self, options: RendererOptions) {

@@ -2,7 +2,12 @@ use crate::{
     bind_merge::BindGroupBuilder,
     datatypes::{Camera, CameraProjection, RenderPassRunRate},
     instruction::Instruction,
-    renderer::{culling, list, list::RenderList, uniforms::WrappedUniform, util::round_to_multiple},
+    renderer::{
+        culling, list,
+        list::{RenderList, RenderRoutineTarget},
+        uniforms::WrappedUniform,
+        util::round_to_multiple,
+    },
     statistics::RendererStatistics,
     Renderer, RendererMode, RendererOutput,
 };
@@ -299,8 +304,11 @@ pub fn render_loop<TLD: 'static>(
                 Instruction::RemoveShader { handle } => {
                     renderer.shader_manager.remove(handle);
                 }
-                Instruction::RemovePipeline { handle } => {
-                    renderer.pipeline_manager.remove(handle);
+                Instruction::RemoveRenderPipeline { handle } => {
+                    renderer.render_pipeline_manager.remove(handle);
+                }
+                Instruction::RemoveComputePipeline { handle } => {
+                    renderer.compute_pipeline_manager.remove(handle);
                 }
                 Instruction::SetOptions { options } => new_options = Some(options),
                 Instruction::SetCameraData { data } => {
@@ -337,11 +345,18 @@ pub fn render_loop<TLD: 'static>(
         let texture_2d_ready = texture_manager_2d.ready(&renderer.device);
         let texture_cube_ready = texture_manager_cube.ready(&renderer.device);
 
-        let recompile_future = if renderer.mode == RendererMode::GPUPowered {
-            Some(renderer.pipeline_manager.recompile_pipelines(
-                &renderer,
-                texture_2d_ready.dirty.into_gpu(),
-                texture_cube_ready.dirty.into_gpu(),
+        let recompile_futures = if renderer.mode == RendererMode::GPUPowered {
+            Some((
+                renderer.render_pipeline_manager.recompile_pipelines(
+                    &renderer,
+                    texture_2d_ready.dirty.into_gpu(),
+                    texture_cube_ready.dirty.into_gpu(),
+                ),
+                renderer.compute_pipeline_manager.recompile_pipelines(
+                    &renderer,
+                    texture_2d_ready.dirty.into_gpu(),
+                    texture_cube_ready.dirty.into_gpu(),
+                ),
             ))
         } else {
             None
@@ -410,8 +425,9 @@ pub fn render_loop<TLD: 'static>(
 
         drop(global_resources);
 
-        if let Some(recomp_future) = recompile_future {
-            recomp_future.await;
+        if let Some((render_recomp, compute_recomp)) = recompile_futures {
+            render_recomp.await;
+            compute_recomp.await;
         }
 
         let global_resources = renderer.global_resources.read();
@@ -478,6 +494,12 @@ pub fn render_loop<TLD: 'static>(
             };
 
             let cull_data_arc = Arc::new(cull_data);
+
+            for routine in &routines {
+                if routine.target != RenderRoutineTarget::Shadow {
+                    continue;
+                }
+            }
 
             // for render_pass in &render_list.passes {
             //     if render_pass.desc.run_rate != RenderPassRunRate::PerShadow {

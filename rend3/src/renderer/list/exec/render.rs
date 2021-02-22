@@ -167,7 +167,7 @@ where
                 })
                 .collect();
 
-            let pipeline = renderer.pipeline_manager.get_arc(op.pipeline);
+            let pipeline = renderer.render_pipeline_manager.get_arc(op.pipeline);
 
             (op, bindings, pipeline)
         })

@@ -1,6 +1,7 @@
 use crate::{
     datatypes::{
-        DepthCompare, PipelineBindingType, PipelineInputType, RenderPassRunRate, RenderPipeline, RenderPipelineHandle,
+        ComputePipeline, ComputePipelineHandle, DepthCompare, PipelineBindingType, PipelineInputType,
+        RenderPassRunRate, RenderPipeline, RenderPipelineHandle,
     },
     registry::ResourceRegistry,
     renderer::mesh::{
@@ -20,18 +21,17 @@ use wgpu::{
 };
 
 #[derive(Debug)]
-pub struct CompiledPipeline {
-    desc: RenderPipeline,
-    inner: Arc<wgpu::RenderPipeline>,
+pub struct CompiledPipeline<T, P> {
+    desc: T,
+    inner: Arc<P>,
     uses_2d: bool,
     uses_cube: bool,
 }
 
-// TODO: invalidation based on 2d and cube manager
-pub struct PipelineManager {
-    registry: RwLock<ResourceRegistry<CompiledPipeline>>,
+pub struct RenderPipelineManager {
+    registry: RwLock<ResourceRegistry<CompiledPipeline<RenderPipeline, wgpu::RenderPipeline>>>,
 }
-impl PipelineManager {
+impl RenderPipelineManager {
     pub fn new() -> Arc<Self> {
         let registry = RwLock::new(ResourceRegistry::new());
 
@@ -298,6 +298,157 @@ impl PipelineManager {
     }
 
     pub fn remove(&self, handle: RenderPipelineHandle) {
+        self.registry.write().remove(handle.0);
+    }
+}
+
+pub struct ComputePipelineManager {
+    registry: RwLock<ResourceRegistry<CompiledPipeline<ComputePipeline, wgpu::ComputePipeline>>>,
+}
+impl ComputePipelineManager {
+    pub fn new() -> Arc<Self> {
+        let registry = RwLock::new(ResourceRegistry::new());
+
+        Arc::new(Self { registry })
+    }
+
+    pub fn allocate_async_insert<TD>(
+        self: &Arc<Self>,
+        renderer: Arc<Renderer<TD>>,
+        pipeline_desc: ComputePipeline,
+    ) -> impl Future<Output = ComputePipelineHandle>
+    where
+        TD: 'static,
+    {
+        let handle = self.registry.read().allocate();
+        let update_fut = self.update_pipeline(renderer, ComputePipelineHandle(handle), pipeline_desc);
+        async move {
+            update_fut.await;
+            ComputePipelineHandle(handle)
+        }
+    }
+
+    pub fn update_pipeline<TD>(
+        self: &Arc<Self>,
+        renderer: Arc<Renderer<TD>>,
+        handle: ComputePipelineHandle,
+        pipeline_desc: ComputePipeline,
+    ) -> impl Future<Output = ()>
+    where
+        TD: 'static,
+    {
+        let this = Arc::clone(&self);
+        let renderer_clone = Arc::clone(&renderer);
+        renderer_clone.yard.spawn(
+            renderer.yard_priorites.compute_pool,
+            renderer.yard_priorites.pipeline_build_priority,
+            async move {
+                let custom_layouts: Vec<_> = pipeline_desc
+                    .bindings
+                    .iter()
+                    .filter_map(|bind| match bind {
+                        PipelineBindingType::Custom2DTexture { count } => Some(create_custom_texture_bgl(
+                            &renderer.device,
+                            TextureViewDimension::D2,
+                            *count as u32,
+                        )),
+                        PipelineBindingType::CustomCubeTexture { count } => Some(create_custom_texture_bgl(
+                            &renderer.device,
+                            TextureViewDimension::Cube,
+                            *count as u32,
+                        )),
+                        _ => None,
+                    })
+                    .collect();
+
+                let mut custom_layout_iter = custom_layouts.iter();
+                let mut uses_2d = false;
+                let mut uses_cube = false;
+
+                let global_data = renderer.global_resources.read();
+                let texture_2d = renderer.texture_manager_2d.read();
+                let texture_cube = renderer.texture_manager_cube.read();
+
+                let layouts: Vec<_> = pipeline_desc
+                    .bindings
+                    .iter()
+                    .map(|bind| match bind {
+                        PipelineBindingType::GeneralData => &global_data.general_bgl,
+                        PipelineBindingType::ObjectData => &global_data.object_data_bgl,
+                        PipelineBindingType::CPUMaterial | PipelineBindingType::GPUMaterial => {
+                            &global_data.material_bgl
+                        }
+                        PipelineBindingType::CameraData => &global_data.camera_data_bgl,
+                        PipelineBindingType::GPU2DTextures => {
+                            uses_2d = true;
+                            texture_2d.gpu_bind_group_layout()
+                        }
+                        PipelineBindingType::GPUCubeTextures => {
+                            uses_cube = true;
+                            texture_cube.gpu_bind_group_layout()
+                        }
+                        PipelineBindingType::ShadowTexture => &global_data.shadow_texture_bgl,
+                        PipelineBindingType::SkyboxTexture => &global_data.skybox_bgl,
+                        PipelineBindingType::Custom2DTexture { .. } => custom_layout_iter.next().unwrap(),
+                        PipelineBindingType::CustomCubeTexture { .. } => custom_layout_iter.next().unwrap(),
+                    })
+                    .collect();
+
+                let pipeline_layout = renderer.device.create_pipeline_layout(&PipelineLayoutDescriptor {
+                    label: None,
+                    bind_group_layouts: &layouts,
+                    push_constant_ranges: &[],
+                });
+
+                drop((global_data, texture_2d, texture_cube));
+
+                let wgpu_pipeline = renderer
+                    .device
+                    .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                        label: None,
+                        layout: Some(&pipeline_layout),
+                        module: &renderer.shader_manager.get(pipeline_desc.compute),
+                        entry_point: "main",
+                    });
+
+                this.registry.write().insert(
+                    handle.0,
+                    CompiledPipeline {
+                        desc: pipeline_desc,
+                        inner: Arc::new(wgpu_pipeline),
+                        uses_2d,
+                        uses_cube,
+                    },
+                );
+            },
+        )
+    }
+
+    pub fn recompile_pipelines<TD>(
+        self: &Arc<Self>,
+        renderer: &Arc<Renderer<TD>>,
+        dirty_2d: bool,
+        dirty_cube: bool,
+    ) -> impl Future<Output = ()> {
+        let mut futs = FuturesUnordered::new();
+        for (handle, pipeline) in self.registry.read().iter() {
+            let dirty = dirty_2d && pipeline.uses_2d || dirty_cube && pipeline.uses_cube;
+            if dirty {
+                futs.push(self.update_pipeline(
+                    Arc::clone(renderer),
+                    ComputePipelineHandle(*handle),
+                    pipeline.desc.clone(),
+                ))
+            }
+        }
+        async move { while futs.next().await.is_some() {} }
+    }
+
+    pub fn get_arc(&self, handle: ComputePipelineHandle) -> Arc<wgpu::ComputePipeline> {
+        Arc::clone(&self.registry.read().get(handle.0).inner)
+    }
+
+    pub fn remove(&self, handle: ComputePipelineHandle) {
         self.registry.write().remove(handle.0);
     }
 }

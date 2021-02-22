@@ -2,7 +2,7 @@ use glam::UVec3;
 
 use crate::{
     datatypes::{ComputePipelineHandle, RenderPipelineHandle},
-    renderer::list::{DepthOutput, ImageOutput, PerObjectResourceBinding, ResourceBinding, RenderListBufferHandle},
+    renderer::list::{DepthOutput, ImageOutput, PerObjectResourceBinding, RenderListBufferHandle, ResourceBinding},
 };
 
 #[derive(Debug, Clone)]
@@ -25,12 +25,8 @@ pub struct ComputeOpDescriptor {
 
 #[derive(Debug, Clone)]
 pub enum ComputeOpDispatchType {
-    Cpu {
-        size: UVec3,
-    },
-    Gpu {
-        indirect_buffer: BufferReference,
-    }
+    Cpu { size: UVec3 },
+    Gpu { indirect_buffer: BufferReference },
 }
 
 #[derive(Debug, Clone)]
@@ -57,7 +53,7 @@ pub enum RenderOpDrawType {
         indirect_buffer: BufferReference,
         count_buffer: BufferReference,
         max_count: usize,
-    }
+    },
 }
 
 #[derive(Debug, Clone)]

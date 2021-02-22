@@ -1,7 +1,7 @@
 use crate::RendererMode;
 pub(crate) use cache::*;
 pub use descriptors::*;
-pub(crate) use forward::*;
+pub(crate) use exec::render::*;
 pub use passes::*;
 use resources::{BufferResource, ImageResource};
 use std::{
@@ -16,7 +16,9 @@ use wgpu::{
 
 mod cache;
 mod descriptors;
-mod forward;
+mod exec {
+    pub mod render;
+}
 mod passes;
 mod resources;
 mod unsync;

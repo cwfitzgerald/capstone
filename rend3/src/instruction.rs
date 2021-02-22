@@ -1,8 +1,8 @@
 use crate::{
     datatypes::{
-        AffineTransform, Camera, DirectionalLight, DirectionalLightChange, DirectionalLightHandle, Material,
-        MaterialChange, MaterialHandle, Mesh, MeshHandle, Object, ObjectHandle, RenderPipelineHandle, ShaderHandle,
-        Texture, TextureHandle,
+        AffineTransform, Camera, ComputePipelineHandle, DirectionalLight, DirectionalLightChange,
+        DirectionalLightHandle, Material, MaterialChange, MaterialHandle, Mesh, MeshHandle, Object, ObjectHandle,
+        RenderPipelineHandle, ShaderHandle, Texture, TextureHandle,
     },
     RendererOptions,
 };
@@ -71,7 +71,10 @@ pub enum Instruction {
     RemoveShader {
         handle: ShaderHandle,
     },
-    RemovePipeline {
+    RemoveComputePipeline {
+        handle: ComputePipelineHandle,
+    },
+    RemoveRenderPipeline {
         handle: RenderPipelineHandle,
     },
     SetOptions {

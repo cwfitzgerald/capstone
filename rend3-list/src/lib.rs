@@ -4,10 +4,11 @@ use rend3::{
         RenderPipeline, RenderPipelineHandle, ShaderHandle,
     },
     renderer::list::{
-        self, Color, DepthOutput, ImageFormat, ImageInputReference, ImageOutput, ImageOutputReference,
-        ImageResourceDescriptor, ImageUsage, LoadOp, ObjectProcessing, PerObjectResourceBinding, RenderList,
-        RenderListCreationRecorder, RenderListRecorder, RenderOpDescriptor, RenderOpInputType, RenderPassDescriptor,
-        ResourceBinding, ShaderSourceStage, ShaderSourceType, SourceShaderDescriptor, UnsynchronizedRenderList,
+        self, Color, ComputeOpDescriptor, ComputePassDescriptor, DepthOutput, ImageFormat, ImageInputReference,
+        ImageOutput, ImageOutputReference, ImageResourceDescriptor, ImageUsage, LoadOp, ObjectProcessing,
+        PerObjectResourceBinding, RenderList, RenderListCreationRecorder, RenderListRecorder, RenderOpDescriptor,
+        RenderOpInputType, RenderPassDescriptor, ResourceBinding, ShaderSourceStage, ShaderSourceType,
+        SourceShaderDescriptor, UnsynchronizedRenderList,
     },
     Renderer, RendererMode, SWAPCHAIN_FORMAT,
 };
@@ -297,7 +298,13 @@ impl UnsynchronizedRenderList for DefaultRenderList {
             },
             list::RenderRoutineTarget::Shadow,
             |recorder, count, mode| {
-                recorder.add_cpu_compute_op(desc)
+                recorder.add_compute_pass(ComputePassDescriptor { name: "culling" });
+
+                recorder.add_compute_op(ComputeOpDescriptor {
+                    pipeline: (),
+                    per_op_bindings: (),
+                    size: (),
+                })
             },
         )
     }
