@@ -10,7 +10,7 @@ use crate::{
         material::MaterialManager,
         mesh::MeshManager,
         object::ObjectManager,
-        pipeline::RenderPipelineManager,
+        pipeline::{RenderPipelineManager, ComputePipelineManager},
         resources::RendererGlobalResources,
         shaders::ShaderManager,
         texture::{TextureManager, STARTING_2D_TEXTURES, STARTING_CUBE_TEXTURES},
@@ -243,6 +243,7 @@ pub async fn create_renderer<W: HasRawWindowHandle, TLD: 'static>(
     ));
 
     let render_pipeline_manager = RenderPipelineManager::new();
+    let compute_pipeline_manager = ComputePipelineManager::new();
 
     let mut buffer_manager = Mutex::new(AutomatedBufferManager::new(UploadStyle::from_device_type(
         &adapter_info.device_type,
@@ -278,6 +279,7 @@ pub async fn create_renderer<W: HasRawWindowHandle, TLD: 'static>(
         global_resources,
         shader_manager,
         render_pipeline_manager,
+        compute_pipeline_manager,
         mesh_manager,
         texture_manager_2d,
         texture_manager_cube,

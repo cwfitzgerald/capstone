@@ -4,8 +4,8 @@ use crate::{
     renderer::{
         culling::CullingPassData,
         list::{
-            ImageInputReference, ImageOutputReference, PerObjectResourceBinding, RenderOpInputType, RenderPass,
-            ResourceBinding,
+            ImageInputReference, ImageOutputReference, PerObjectResourceBinding, RenderOpDrawType, RenderOpInputType,
+            RenderPass, ResourceBinding,
         },
         pipeline::create_custom_texture_bgl,
         uniforms::WrappedUniform,
@@ -193,12 +193,12 @@ where
             rpass.set_bind_group(idx as u32, binding, &[]);
         }
         let binding_count = bindings.len();
-        match op.input {
-            RenderOpInputType::FullscreenTriangle => {
-                rpass.draw(0..3, 0..1);
-            }
-            RenderOpInputType::Models3D => match culling_data.inner {
-                ModeData::CPU(ref c) => {
+        match op.draw_type {
+            RenderOpDrawType::Cpu { input } => match input {
+                RenderOpInputType::FullscreenTriangle => {
+                    rpass.draw(0..3, 0..1);
+                }
+                RenderOpInputType::Models3D => {
                     rpass.set_vertex_buffer(0, buffers.vertex_position.slice(..));
                     rpass.set_vertex_buffer(1, buffers.vertex_normal.slice(..));
                     rpass.set_vertex_buffer(2, buffers.vertex_tangent.slice(..));
@@ -207,7 +207,7 @@ where
                     rpass.set_vertex_buffer(5, buffers.vertex_mat_index.slice(..));
                     rpass.set_index_buffer(buffers.index.slice(..), IndexFormat::Uint32);
                     let mut last_material = None;
-                    for (draw_call_idx, object) in c.iter().enumerate() {
+                    for (draw_call_idx, object) in culling_data.inner.as_cpu().iter().enumerate() {
                         for (idx, binding) in op.per_object_bindings.iter().enumerate() {
                             match binding {
                                 PerObjectResourceBinding::CPUMaterial => {
@@ -229,25 +229,25 @@ where
                         rpass.draw_indexed(start..end, object.vertex_offset, 0..1);
                     }
                 }
-                ModeData::GPU(ref g) => {
-                    rpass.set_vertex_buffer(0, buffers.vertex_position.slice(..));
-                    rpass.set_vertex_buffer(1, buffers.vertex_normal.slice(..));
-                    rpass.set_vertex_buffer(2, buffers.vertex_tangent.slice(..));
-                    rpass.set_vertex_buffer(3, buffers.vertex_uv.slice(..));
-                    rpass.set_vertex_buffer(4, buffers.vertex_color.slice(..));
-                    rpass.set_vertex_buffer(5, buffers.vertex_mat_index.slice(..));
-                    rpass.set_index_buffer(buffers.index.slice(..), IndexFormat::Uint32);
-
-                    rpass.set_vertex_buffer(6, g.indirect_buffer.slice(..));
-                    rpass.multi_draw_indexed_indirect_count(
-                        &g.indirect_buffer,
-                        0,
-                        &g.count_buffer,
-                        0,
-                        culling_data.object_count,
-                    );
-                }
             },
+            RenderOpDrawType::Gpu { indirect_buffer, count_buffer, max_count } => {
+                rpass.set_vertex_buffer(0, buffers.vertex_position.slice(..));
+                rpass.set_vertex_buffer(1, buffers.vertex_normal.slice(..));
+                rpass.set_vertex_buffer(2, buffers.vertex_tangent.slice(..));
+                rpass.set_vertex_buffer(3, buffers.vertex_uv.slice(..));
+                rpass.set_vertex_buffer(4, buffers.vertex_color.slice(..));
+                rpass.set_vertex_buffer(5, buffers.vertex_mat_index.slice(..));
+                rpass.set_index_buffer(buffers.index.slice(..), IndexFormat::Uint32);
+
+                rpass.set_vertex_buffer(6, g.indirect_buffer.slice(..));
+                rpass.multi_draw_indexed_indirect_count(
+                    &g.indirect_buffer,
+                    0,
+                    &g.count_buffer,
+                    0,
+                    culling_data.object_count,
+                );
+            }
         }
     }
 
