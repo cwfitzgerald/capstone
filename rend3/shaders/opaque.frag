@@ -19,7 +19,8 @@ layout(location = 0) out vec4 o_color;
 layout(location = 1) out vec4 o_normal;
 
 layout(set = 0, binding = 0) uniform sampler linear_sampler;
-layout(set = 0, binding = 1) uniform samplerShadow shadow_sampler;
+layout(set = 0, binding = 1) uniform sampler nearest_sampler;
+layout(set = 0, binding = 2) uniform samplerShadow shadow_sampler;
 layout(set = 1, binding = 0, std430) restrict readonly buffer ObjectOutputDataBuffer {
     ObjectOutputData object_output[];
 };
@@ -86,7 +87,7 @@ void main() {
             color += surface_shading(directional_lights[i], pixel, v, shadow_value * pixel.ambient_occlusion);
         }
 
-        o_color =  vec4(color, 1.0);
+        o_color = max(vec4(color, 1.0), uniforms.ambient * pixel.albedo);
         o_normal = vec4(pixel.normal, 0.0);
     }
 }

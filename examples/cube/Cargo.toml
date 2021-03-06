@@ -1,9 +1,10 @@
 [package]
 name = "rend3-cube-example"
 license = "MIT OR Apache-2.0 OR Zlib"
-version = "0.1.0"
+version = "0.0.3"
 authors = ["Connor Fitzgerald <connorwadefitzgerald@gmail.com>"]
 edition = "2018"
+publish = false
 
 [[bin]]
 name = "cube"
@@ -13,10 +14,10 @@ path = "src/main.rs"
 
 [dependencies]
 # Linear algebra library
-glam = "0.12"
+glam = "0.13"
 # Renderer
-rend3 = { path = "../../rend3", version = "0.1.0" }
-rend3-list = { path = "../../rend3-list", version = "0.1.0" }
+rend3 = { path = "../../rend3", version = "^0.0.3"}
+rend3-list = { path = "../../rend3-list", version = "^0.0.3"}
 # Provides `block_on` to wait for futures from sync code
 pollster = "0.2"
 # wgpu-aware logging

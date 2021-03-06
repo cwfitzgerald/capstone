@@ -67,6 +67,7 @@ fn main() {
     let mut options = rend3::RendererOptions {
         vsync: rend3::VSyncMode::On,
         size: [window_size.width, window_size.height],
+        ambient: glam::Vec4::default(),
     };
 
     let renderer = pollster::block_on(rend3::RendererBuilder::new(options.clone()).window(&window).build()).unwrap();
@@ -95,7 +96,7 @@ fn main() {
         mesh: mesh_handle,
         material: material_handle,
         transform: rend3::datatypes::AffineTransform {
-            transform: glam::Mat4::identity(),
+            transform: glam::Mat4::IDENTITY,
         },
     };
     let _object_handle = renderer.add_object(object);
@@ -113,7 +114,7 @@ fn main() {
 
     // Create a single directional light
     renderer.add_directional_light(rend3::datatypes::DirectionalLight {
-        color: glam::Vec3::one(),
+        color: glam::Vec3::ONE,
         intensity: 10.0,
         // Direction will be normalized
         direction: glam::Vec3::new(-1.0, -4.0, 2.0),

@@ -1,20 +1,45 @@
 [package]
 name = "rend3"
-version = "0.1.0"
+version = "0.0.3"
 authors = ["Connor Fitzgerald <connorwadefitzgerald@gmail.com>"]
 edition = "2018"
 description = "Easy to use, customizable, efficient 3D renderer library built on wgpu."
-readme = "README.md"
+readme = "../README.md"
 repository = "https://github.com/BVE-Reborn/rend3"
 license = "MIT OR Apache-2.0 OR Zlib"
-keywords = []
-categories = []
+keywords = ["3d", "graphics", "gpu", "renderer", "wgpu"]
+categories = ["game-development", "graphics", "rendering", "rendering::engine"]
+
+[package.metadata.release]
+disable-tag = false
+tag-prefix = ""
+pre-release-hook = ["cargo", "readme", "-o", "../README.md", "-t", "../README.tpl"]
+[[package.metadata.release.pre-release-replacements]]
+file = "src/lib.rs"
+search = "rend3 = \"[a-z0-9\\.-]+\""
+replace = "rend3 = \"{{version}}\""
+[[package.metadata.release.pre-release-replacements]]
+file = "../CHANGELOG.md"
+search = "\\[Unreleased\\]\\(#unreleased\\)"
+replace = "[Unreleased](#unreleased)\n- [v{{version}}](#v{{version}})"
+[[package.metadata.release.pre-release-replacements]]
+file = "../CHANGELOG.md"
+search = "\\[v([0-9+])\\.([0-9+])\\.([0-9+])\\]\\(#v[0-9\\.]+\\)"
+replace = "[v$1.$2.$3](#v$1$2$3)"
+[[package.metadata.release.pre-release-replacements]]
+file = "../CHANGELOG.md"
+search = "## Unreleased"
+replace = "## Unreleased\n\n## v{{version}}\n\nReleased {{date}}"
+[[package.metadata.release.pre-release-replacements]]
+file = "../CHANGELOG.md"
+search = "\\[Unreleased\\]\\(https://github.com/BVE-Reborn/rend3/compare/v([a-z0-9.-]+)\\.\\.\\.HEAD\\)"
+replace = "[Unreleased](https://github.com/BVE-Reborn/rend3/compare/v{{version}}...HEAD)\n- [v{{version}}](https://github.com/BVE-Reborn/rend3/compare/v$1...v{{version}})"
 
 [dependencies]
 arrayvec = "0.5"
 bitflags = "1"
 bytemuck = "1"
-glam = { version = "0.12", features = ["bytemuck"] }
+glam = { version = "0.13", features = ["bytemuck"] }
 include_dir = "0.6"
 indexmap = "1"
 itertools = "0.10"

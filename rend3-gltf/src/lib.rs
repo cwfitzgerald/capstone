@@ -133,7 +133,7 @@ where
         let light = if let Some(light) = node.light() {
             match light.kind() {
                 gltf::khr_lights_punctual::Kind::Directional => {
-                    let direction = (transform * (-Vec3::unit_z()).extend(1.0)).xyz();
+                    let direction = (transform * (-Vec3::Z).extend(1.0)).xyz();
                     Some(renderer.add_directional_light(dt::DirectionalLight {
                         color: Vec3::from(light.color()),
                         intensity: light.intensity(),
@@ -247,8 +247,9 @@ fn load_default_material<TLD>(renderer: &Renderer<TLD>, loaded: &mut LoadedGltfS
             reflectance: dt::MaterialComponent::None,
             anisotropy: dt::MaterialComponent::None,
             alpha_cutout: None,
-            transform: Mat3::identity(),
+            transform: Mat3::IDENTITY,
             unlit: false,
+            nearest: false,
         }),
     );
 }
@@ -275,6 +276,11 @@ where
         let roughness_factor = pbr.roughness_factor();
         let metallic_factor = pbr.metallic_factor();
         let metallic_roughness = pbr.metallic_roughness_texture();
+
+        let nearest = albedo
+            .as_ref()
+            .map(|i| i.texture().sampler().mag_filter() == Some(gltf::texture::MagFilter::Nearest))
+            .unwrap_or_default();
 
         let albedo_tex =
             OptionFuture::from(albedo.map(|i| load_image(renderer, loaded, i.texture().source(), true, texture_func)))
@@ -329,6 +335,8 @@ where
                 },
                 None => dt::MaterialComponent::Value(Vec3::from(emissive_factor)),
             },
+            unlit: material.unlit(),
+            nearest,
             ..dt::Material::default()
         });
 
@@ -340,10 +348,10 @@ where
     Ok(())
 }
 
-async fn load_image<'a, TLD, F, Fut>(
+async fn load_image<TLD, F, Fut>(
     renderer: &Renderer<TLD>,
     loaded: &mut LoadedGltfScene,
-    image: gltf::Image<'a>,
+    image: gltf::Image<'_>,
     srgb: bool,
     texture_func: &mut F,
 ) -> Result<dt::TextureHandle, GltfLoadError>
