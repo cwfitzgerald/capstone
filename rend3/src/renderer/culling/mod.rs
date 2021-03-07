@@ -1,25 +1,20 @@
-pub use crate::renderer::culling::cpu::CPUDrawCall;
 use crate::{
-    mode::ModeData,
+    datatypes::MaterialHandle,
     renderer::{
         camera::CameraManager,
-        list::{ShaderSourceStage, ShaderSourceType, SourceShaderDescriptor},
-        object::ObjectManager,
-        shaders::ShaderManager,
+        frustum::ShaderFrustum,
+        object::{InternalObject, ObjectManager},
+        OrdEqFloat,
     },
-    JobPriorities, RendererMode,
+    JobPriorities,
 };
-use futures::future::Either;
-use std::future::Future;
+use futures::{stream::FuturesUnordered, StreamExt};
+use glam::{Mat4, Vec4, Vec4Swizzles};
+use itertools::Itertools;
+use smallvec::SmallVec;
 use switchyard::Switchyard;
-use tracing_futures::Instrument;
-use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, Buffer, BufferAddress, BufferDescriptor,
-    BufferUsage, ComputePass, ComputePipeline, ComputePipelineDescriptor, Device, PipelineLayoutDescriptor,
-    PushConstantRange, Queue, ShaderStage,
-};
-
-mod cpu;
+use wgpu::{BufferUsage, Device, Queue, util::{BufferInitDescriptor, DeviceExt}};
+use wgpu::{Buffer, BufferAddress};
 
 const SIZE_OF_STATUS: BufferAddress = 4;
 const SIZE_OF_INDEX: BufferAddress = 4;
@@ -27,362 +22,150 @@ const SIZE_OF_OUTPUT_DATA: BufferAddress = 12 * 16;
 const SIZE_OF_INDIRECT_CALL: BufferAddress = 5 * 4;
 const SIZE_OF_INDIRECT_COUNT: BufferAddress = 4;
 
-pub(crate) struct GPUCullingPassData {
-    pub pre_cull_bg: BindGroup,
-    pub prefix_sum_bg1: BindGroup,
-    pub prefix_sum_bg2: BindGroup,
-    pub output_bg: BindGroup,
-    pub indirect_buffer: Buffer,
-    pub count_buffer: Buffer,
-}
-
 pub(crate) struct CullingPassData {
-    pub name: String,
-    pub inner: ModeData<Vec<CPUDrawCall>, GPUCullingPassData>,
+    pub calls: Vec<CPUDrawCall>,
     pub output_buffer: Buffer,
     pub object_count: u32,
 }
 
-pub struct GPUCullingPass {
-    pre_cull_pipeline: ComputePipeline,
-    prefix_sum_pipeline: ComputePipeline,
-    post_cull_pipeline: ComputePipeline,
-    subgroup_size: u32,
+#[derive(Debug, Copy, Clone)]
+pub struct CPUDrawCall {
+    pub start_idx: u32,
+    pub count: u32,
+    pub vertex_offset: i32,
+    pub handle: MaterialHandle,
 }
 
-pub struct CullingPassCreationArgs<'a> {
-    pub mode: RendererMode,
-    pub shader_manager: &'a ShaderManager,
-    pub prefix_sum_bgl: &'a BindGroupLayout,
-    pub pre_cull_bgl: &'a BindGroupLayout,
-    pub object_input_bgl: &'a BindGroupLayout,
-    pub output_bgl: &'a BindGroupLayout,
-    pub uniform_bgl: &'a BindGroupLayout,
-    pub subgroup_size: u32,
+#[derive(Debug, Clone)]
+pub struct CullingOutputData {
+    call: CPUDrawCall,
+    output: ShaderOutputObject,
+    distance: f32,
 }
 
-pub struct CullingPassPrepareArgs<'a> {
-    pub device: &'a Device,
-    pub mode: RendererMode,
-    pub prefix_sum_bgl: &'a BindGroupLayout,
-    pub pre_cull_bgl: &'a BindGroupLayout,
-    pub output_bgl: &'a BindGroupLayout,
-    pub object_count: u32,
-    pub name: String,
+#[derive(Debug, Copy, Clone)]
+#[repr(C, align(16))]
+struct ShaderOutputObject {
+    model_view: Mat4,
+    model_view_proj: Mat4,
+    // Actually a mat3, but funky shader time
+    inv_trans_model_view_0: Vec4,
+    inv_trans_model_view_1: Vec4,
+    inv_trans_model_view_2: Vec4,
+    // Unused in shader
+    _material_idx: u32,
+    // Unused in shader
+    _active: u32,
 }
 
-pub struct CullingPass {
-    inner: ModeData<(), GPUCullingPass>,
-}
-impl CullingPass {
-    pub fn new<'a, 'b>(device: &'a Device, args: CullingPassCreationArgs<'b>) -> impl Future<Output = Self> + 'a {
-        let new_span = tracing::warn_span!("Creating CullingPass");
-        let new_span_guard = new_span.enter();
+unsafe impl bytemuck::Zeroable for ShaderOutputObject {}
+unsafe impl bytemuck::Pod for ShaderOutputObject {}
 
-        if args.mode == RendererMode::GPUPowered {
-            let pre_cull_shader = args.shader_manager.compile_shader(SourceShaderDescriptor {
-                source: ShaderSourceType::Builtin(String::from("pre_cull.comp")),
-                defines: vec![(String::from("WARP_SIZE"), Some(args.subgroup_size.to_string()))],
-                includes: vec![],
-                stage: ShaderSourceStage::Compute,
-            });
+pub(crate) async fn run<TD>(
+    yard: &Switchyard<TD>,
+    yard_priorities: JobPriorities,
+    device: &Device,
+    object_manager: &ObjectManager,
+    camera: CameraManager,
+    object_count: usize,
+) -> CullingPassData
+where
+    TD: 'static,
+{
+    let proj = camera.proj();
+    let frustum = ShaderFrustum::from_matrix(proj);
+    let view = camera.view();
+    let view_proj = camera.view_proj();
 
-            let prefix_sum = args.shader_manager.compile_shader(SourceShaderDescriptor {
-                source: ShaderSourceType::Builtin(String::from("prefix_sum.comp")),
-                defines: vec![(String::from("WARP_SIZE"), Some(args.subgroup_size.to_string()))],
-                includes: vec![],
-                stage: ShaderSourceStage::Compute,
-            });
+    // TODO: real thread count
+    let threads = 8;
+    // Want chunks of no smaller than 1 to not trigger assert in chunks.
+    let chunk_size = ((object_count + threads - 1) / threads).max(1);
 
-            let post_cull_shader = args.shader_manager.compile_shader(SourceShaderDescriptor {
-                source: ShaderSourceType::Builtin(String::from("post_cull.comp")),
-                defines: vec![(String::from("WARP_SIZE"), Some(args.subgroup_size.to_string()))],
-                includes: vec![],
-                stage: ShaderSourceStage::Compute,
-            });
+    let chunks = object_manager.values().cloned().chunks(chunk_size as usize);
 
-            let pre_cull_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-                label: Some("pre-cull pipeline layout"),
-                bind_group_layouts: &[args.object_input_bgl, args.pre_cull_bgl, args.uniform_bgl],
-                push_constant_ranges: &[PushConstantRange {
-                    range: 0..4,
-                    stages: ShaderStage::COMPUTE,
-                }],
-            });
+    let mut res_futures = FuturesUnordered::new();
+    for object_chunk in (&chunks).into_iter().map(|v| v.collect_vec()) {
+        let object_chunk: Vec<InternalObject> = object_chunk;
 
-            let prefix_sum_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-                label: Some("prefix-sum pipeline layout"),
-                bind_group_layouts: &[args.prefix_sum_bgl],
-                push_constant_ranges: &[PushConstantRange {
-                    range: 0..8,
-                    stages: ShaderStage::COMPUTE,
-                }],
-            });
+        res_futures.push(yard.spawn(
+            yard_priorities.compute_pool,
+            yard_priorities.culling_priority,
+            async move {
+                let mut chunk_results = Vec::with_capacity(object_chunk.len());
 
-            let post_cull_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-                label: Some("post-cull pipeline layout"),
-                bind_group_layouts: &[args.object_input_bgl, args.output_bgl, args.uniform_bgl],
-                push_constant_ranges: &[PushConstantRange {
-                    range: 0..4,
-                    stages: ShaderStage::COMPUTE,
-                }],
-            });
+                for object in object_chunk {
+                    let model = object.transform.transform;
+                    let model_view = view * model;
 
-            drop(new_span_guard);
-
-            // Need to not keep arguments alive
-            let subgroup_size = args.subgroup_size;
-
-            Either::Left(
-                async move {
-                    let pre_cull_shader = pre_cull_shader.await.unwrap();
-                    let prefix_sum = prefix_sum.await.unwrap();
-                    let post_cull_shader = post_cull_shader.await.unwrap();
-
-                    let pre_cull_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
-                        label: Some("culling pipeline"),
-                        layout: Some(&pre_cull_pipeline_layout),
-                        module: &pre_cull_shader,
-                        entry_point: "main",
-                    });
-
-                    let prefix_sum_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
-                        label: Some("prefix-sum pipeline"),
-                        layout: Some(&prefix_sum_pipeline_layout),
-                        module: &prefix_sum,
-                        entry_point: "main",
-                    });
-
-                    let post_cull_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
-                        label: Some("post-cull pipeline"),
-                        layout: Some(&post_cull_pipeline_layout),
-                        module: &post_cull_shader,
-                        entry_point: "main",
-                    });
-
-                    Self {
-                        inner: ModeData::GPU(GPUCullingPass {
-                            pre_cull_pipeline,
-                            prefix_sum_pipeline,
-                            post_cull_pipeline,
-                            subgroup_size,
-                        }),
+                    let transformed = object.sphere.apply_transform(model_view);
+                    if !frustum.contains_sphere(transformed) {
+                        continue;
                     }
-                }
-                .instrument(new_span),
-            )
-        } else {
-            Either::Right(async {
-                Self {
-                    inner: ModeData::CPU(()),
-                }
-            })
-        }
-    }
 
-    pub(crate) fn prepare(&self, args: CullingPassPrepareArgs<'_>) -> CullingPassData {
-        span_transfer!(_ -> prepare_span, WARN, "Preparing CullingPass");
+                    let view_position = (model_view * object.sphere.center.extend(1.0)).xyz();
+                    let distance = view_position.length_squared();
 
-        let output_buffer = args.device.create_buffer(&BufferDescriptor {
-            label: Some(&*format!("object output buffer for {}", &args.name)),
-            size: SIZE_OF_OUTPUT_DATA * args.object_count as BufferAddress,
-            usage: match args.mode {
-                RendererMode::CPUPowered => BufferUsage::COPY_DST | BufferUsage::STORAGE,
-                RendererMode::GPUPowered => BufferUsage::STORAGE,
+                    let model_view_proj = view_proj * model;
+
+                    let inv_trans_model_view = model_view.inverse().transpose();
+
+                    let output = ShaderOutputObject {
+                        model_view,
+                        model_view_proj,
+                        inv_trans_model_view_0: inv_trans_model_view.x_axis,
+                        inv_trans_model_view_1: inv_trans_model_view.y_axis,
+                        inv_trans_model_view_2: inv_trans_model_view.z_axis,
+                        _material_idx: 0,
+                        _active: 0,
+                    };
+
+                    let call = CPUDrawCall {
+                        start_idx: object.start_idx,
+                        count: object.count,
+                        vertex_offset: object.vertex_offset,
+                        handle: object.material,
+                    };
+
+                    chunk_results.push(CullingOutputData { call, output, distance })
+                }
+
+                chunk_results
             },
-            mapped_at_creation: false,
-        });
-
-        let inner = args.mode.into_data(Vec::new, || {
-            let status_buffer = args.device.create_buffer(&BufferDescriptor {
-                label: Some(&*format!("status buffer for {}", &args.name)),
-                size: SIZE_OF_STATUS * args.object_count as BufferAddress,
-                usage: BufferUsage::STORAGE,
-                mapped_at_creation: false,
-            });
-
-            let index_buffer1 = args.device.create_buffer(&BufferDescriptor {
-                label: Some(&*format!("index buffer 1 for {}", &args.name)),
-                size: SIZE_OF_INDEX * args.object_count as BufferAddress,
-                usage: BufferUsage::STORAGE,
-                mapped_at_creation: false,
-            });
-
-            let index_buffer2 = args.device.create_buffer(&BufferDescriptor {
-                label: Some(&*format!("index buffer 2 for {}", &args.name)),
-                size: SIZE_OF_INDEX * args.object_count as BufferAddress,
-                usage: BufferUsage::STORAGE,
-                mapped_at_creation: false,
-            });
-
-            let indirect_buffer = args.device.create_buffer(&BufferDescriptor {
-                label: Some(&*format!("indirect buffer for {}", &args.name)),
-                size: SIZE_OF_INDIRECT_CALL * args.object_count as BufferAddress,
-                usage: BufferUsage::STORAGE | BufferUsage::INDIRECT | BufferUsage::VERTEX,
-                mapped_at_creation: false,
-            });
-
-            let count_buffer = args.device.create_buffer(&BufferDescriptor {
-                label: Some(&*format!("count buffer for {}", &args.name)),
-                size: SIZE_OF_INDIRECT_COUNT,
-                usage: BufferUsage::STORAGE | BufferUsage::INDIRECT,
-                mapped_at_creation: true,
-            });
-
-            count_buffer
-                .slice(..)
-                .get_mapped_range_mut()
-                .copy_from_slice(bytemuck::bytes_of(&0));
-            count_buffer.unmap();
-
-            let count = (args.object_count as f32).log2().ceil() as u32;
-
-            let pre_cull_bg = args.device.create_bind_group(&BindGroupDescriptor {
-                label: Some(&*format!("pre-cull bind group for {}", &args.name)),
-                layout: args.pre_cull_bgl,
-                entries: &[
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: index_buffer1.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: status_buffer.as_entire_binding(),
-                    },
-                ],
-            });
-
-            let prefix_sum_bg1 = args.device.create_bind_group(&BindGroupDescriptor {
-                label: Some(&*format!("prefix-sum bind group 1 for {}", &args.name)),
-                layout: &args.prefix_sum_bgl,
-                entries: &[
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: index_buffer1.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: index_buffer2.as_entire_binding(),
-                    },
-                ],
-            });
-
-            let prefix_sum_bg2 = args.device.create_bind_group(&BindGroupDescriptor {
-                label: Some(&*format!("prefix-sum bind group 2 for {}", &args.name)),
-                layout: &args.prefix_sum_bgl,
-                entries: &[
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: index_buffer2.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: index_buffer1.as_entire_binding(),
-                    },
-                ],
-            });
-
-            let index_buffer = if count % 2 == 0 { &index_buffer1 } else { &index_buffer2 };
-
-            let output_bg = args.device.create_bind_group(&BindGroupDescriptor {
-                label: Some(&*format!("output bind group for {}", &args.name)),
-                layout: args.output_bgl,
-                entries: &[
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: index_buffer.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: status_buffer.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 2,
-                        resource: output_buffer.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 3,
-                        resource: indirect_buffer.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 4,
-                        resource: count_buffer.as_entire_binding(),
-                    },
-                ],
-            });
-
-            GPUCullingPassData {
-                pre_cull_bg,
-                prefix_sum_bg1,
-                prefix_sum_bg2,
-                output_bg,
-                indirect_buffer,
-                count_buffer,
-            }
-        });
-
-        CullingPassData {
-            name: args.name,
-            inner,
-            output_buffer,
-            object_count: args.object_count,
-        }
+        ))
     }
 
-    pub(crate) fn cpu_run<'a, TD>(
-        &self,
-        yard: &'a Switchyard<TD>,
-        yard_priorities: JobPriorities,
-        queue: &'a Queue,
-        object_manager: &'a ObjectManager,
-        data: &'a mut CullingPassData,
-        camera: CameraManager,
-    ) -> impl Future<Output = ()> + 'a
-    where
-        TD: 'static,
-    {
-        cpu::run(yard, yard_priorities, queue, object_manager, data, camera)
+    let mut total_post_cull_objects = 0_usize;
+    let mut res_vectors: SmallVec<[_; 32]> = SmallVec::new();
+    while let Some(vec) = res_futures.next().await {
+        total_post_cull_objects += vec.len();
+        res_vectors.push(vec)
     }
 
-    pub(crate) fn gpu_run<'a>(
-        &'a self,
-        cpass: &mut ComputePass<'a>,
-        object_input_bg: &'a BindGroup,
-        uniform_bg: &'a BindGroup,
-        data: &'a CullingPassData,
-    ) {
-        let cull_pass = self.inner.as_gpu();
-        let dispatch_count = (data.object_count + cull_pass.subgroup_size - 1) / cull_pass.subgroup_size;
+    let mut res = Vec::with_capacity(total_post_cull_objects);
+    for vec in res_vectors {
+        res.extend_from_slice(&vec);
+    }
 
-        span_transfer!(_ -> run_span, WARN, "Running CullingPass");
-        cpass.set_pipeline(&cull_pass.pre_cull_pipeline);
-        cpass.set_push_constants(0, bytemuck::bytes_of(&data.object_count));
-        cpass.set_bind_group(0, object_input_bg, &[]);
-        cpass.set_bind_group(1, &data.inner.as_gpu().pre_cull_bg, &[]);
-        cpass.set_bind_group(2, uniform_bg, &[]);
-        cpass.dispatch(dispatch_count, 1, 1);
+    res.sort_unstable_by_key(|v| (v.call.handle.0, OrdEqFloat(v.distance)));
 
-        cpass.set_pipeline(&cull_pass.prefix_sum_pipeline);
-        let mut stride = 1_u32;
-        let mut iteration = 0;
-        while stride < data.object_count {
-            cpass.set_push_constants(0, bytemuck::cast_slice(&[stride, data.object_count]));
-            let bind_group = if iteration % 2 == 0 {
-                &data.inner.as_gpu().prefix_sum_bg1
-            } else {
-                &data.inner.as_gpu().prefix_sum_bg2
-            };
-            cpass.set_bind_group(0, bind_group, &[]);
-            cpass.dispatch(dispatch_count, 1, 1);
-            stride <<= 1;
-            iteration += 1;
-        }
+    let mut output_data = Vec::with_capacity(res.len());
+    let mut calls = Vec::with_capacity(res.len());
 
-        cpass.set_pipeline(&cull_pass.post_cull_pipeline);
-        cpass.set_push_constants(0, bytemuck::bytes_of(&data.object_count));
-        cpass.set_bind_group(0, object_input_bg, &[]);
-        cpass.set_bind_group(1, &data.inner.as_gpu().output_bg, &[]);
-        cpass.set_bind_group(2, uniform_bg, &[]);
-        cpass.dispatch(dispatch_count, 1, 1);
+    for data in res {
+        output_data.push(data.output);
+        calls.push(data.call);
+    }
+
+    let buffer = device.create_buffer_init(&BufferInitDescriptor {
+        label: Some("culling data"),
+        contents: &bytemuck::cast_slice(&output_data),
+        usage: BufferUsage::STORAGE,
+    });
+
+    CullingPassData {
+        calls,
+        output_buffer: buffer,
+        object_count: calls.len() as _,
     }
 }

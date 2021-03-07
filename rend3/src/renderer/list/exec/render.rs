@@ -22,7 +22,7 @@ use wgpu::{
 #[derive(Clone)]
 pub(crate) struct BindingData {
     pub general_bg: Arc<BindGroup>,
-    pub object_bg: Arc<BindGroup>,
+    pub object_bg: ModeData<Arc<BindGroup>, ()>,
     pub material_bg: ModeData<(), Arc<BindGroup>>,
     pub gpu_2d_textures_bg: ModeData<(), Arc<BindGroup>>,
     pub gpu_cube_textures_bg: ModeData<(), Arc<BindGroup>>,
@@ -207,7 +207,7 @@ where
                     rpass.set_vertex_buffer(5, buffers.vertex_mat_index.slice(..));
                     rpass.set_index_buffer(buffers.index.slice(..), IndexFormat::Uint32);
                     let mut last_material = None;
-                    for (draw_call_idx, object) in culling_data.inner.as_cpu().iter().enumerate() {
+                    for (draw_call_idx, object) in culling_data.calls.as_cpu().iter().enumerate() {
                         for (idx, binding) in op.per_object_bindings.iter().enumerate() {
                             match binding {
                                 PerObjectResourceBinding::CPUMaterial => {

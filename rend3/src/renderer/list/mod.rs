@@ -56,7 +56,6 @@ impl<'a, 'b> DerefMut for RenderListRecorder<'a, 'b> {
 }
 
 pub struct RenderListRoutineRecorder {
-    pub(crate) target: RenderRoutineTarget,
     pub(crate) passes: Vec<Pass>,
 }
 
@@ -224,10 +223,24 @@ pub(crate) enum Pass {
 }
 
 impl Pass {
+    pub fn as_compute(&self) -> Option<&ComputePass> {
+        match *self {
+            Pass::Compute(ref p) => Some(p),
+            Pass::Render(_) => None,
+        }
+    }
+
     pub fn as_compute_mut(&mut self) -> Option<&mut ComputePass> {
         match *self {
             Pass::Compute(ref mut p) => Some(p),
             Pass::Render(_) => None,
+        }
+    }
+
+    pub fn as_render(&self) -> Option<&RenderPass> {
+        match *self {
+            Pass::Render(ref p) => Some(p),
+            Pass::Compute(_) => None,
         }
     }
 
@@ -251,9 +264,8 @@ pub(crate) struct ComputePass {
     pub ops: Vec<ComputeOpDescriptor>,
 }
 pub struct ObjectProcessing {
-    filter: ObjectFilter,
-    frustum_culling: bool,
-    object_sorting: ObjectSortingStyle,
+    pub filter: ObjectFilter,
+    pub object_sorting: ObjectSortingStyle,
 }
 
 pub struct ObjectFilter;

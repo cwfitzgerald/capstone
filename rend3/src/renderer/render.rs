@@ -436,50 +436,12 @@ pub fn render_loop<TLD: 'static>(
         let mut command_buffer_futures = FuturesOrdered::<switchyard::JoinHandle<wgpu::CommandBuffer>>::new();
 
         for light in directional_light_manager.values() {
-            let mut cull_data = renderer.culling_pass.prepare(culling::CullingPassPrepareArgs {
-                device: &renderer.device,
-                mode: renderer.mode,
-                prefix_sum_bgl: &global_resources.prefix_sum_bgl,
-                pre_cull_bgl: &global_resources.pre_cull_bgl,
-                output_bgl: &global_resources.object_output_bgl,
-                object_count: object_count as _,
-                name: String::from("shadow pass"),
-            });
-
             let mut object_bgb = BindGroupBuilder::new(Some(String::from("object bg")));
             object_bgb.append(cull_data.output_buffer.as_entire_binding());
             let object_bg = object_bgb.build(&renderer.device, &global_resources.object_data_bgl);
 
             let uniform = WrappedUniform::new(&renderer.device, &global_resources.camera_data_bgl);
             uniform.upload(&renderer.queue, &light.camera, options.ambient);
-
-            match renderer.mode {
-                RendererMode::CPUPowered => {
-                    renderer
-                        .culling_pass
-                        .cpu_run(
-                            &renderer.yard,
-                            renderer.yard_priorites,
-                            &renderer.queue,
-                            &object_manager,
-                            &mut cull_data,
-                            light.camera,
-                        )
-                        .await;
-                }
-                RendererMode::GPUPowered => {
-                    let mut cpass = encoder.begin_compute_pass(&ComputePassDescriptor::default());
-
-                    renderer.culling_pass.gpu_run(
-                        &mut cpass,
-                        object_input_bg.as_gpu(),
-                        &uniform.uniform_bg,
-                        &cull_data,
-                    );
-
-                    drop(cpass);
-                }
-            }
 
             let binding_data = list::BindingData {
                 general_bg: Arc::clone(&general_bg),
@@ -492,12 +454,27 @@ pub fn render_loop<TLD: 'static>(
                 wrapped_uniform: Arc::new(uniform),
             };
 
-            let cull_data_arc = Arc::new(cull_data);
-
             for routine in &routines {
                 if routine.target != RenderRoutineTarget::Shadow {
                     continue;
                 }
+
+                let mut recorder = list::RenderListRoutineRecorder { passes: Vec::new() };
+
+                (routine.routine)(&mut recorder, object_count, renderer.mode);
+
+                let needs_cpu_rendering = recorder.passes.iter().filter_map(|pass| pass.as_render()).any(|rpass| {
+                    rpass
+                        .ops
+                        .iter()
+                        .any(|op| matches!(op.draw_type, list::RenderOpDrawType::Cpu { .. }))
+                });
+
+                let culling = if needs_cpu_rendering {
+                    Some(culling::run(&renderer.yard, renderer.yard_priorites, &renderer.device, &object_manager, light.camera, object_count).await)
+                } else {
+                    None
+                };
             }
 
             // for render_pass in &render_list.passes {
@@ -531,16 +508,6 @@ pub fn render_loop<TLD: 'static>(
         let global_resources = renderer.global_resources.read();
 
         {
-            let mut cull_data = renderer.culling_pass.prepare(culling::CullingPassPrepareArgs {
-                device: &renderer.device,
-                mode: renderer.mode,
-                prefix_sum_bgl: &global_resources.prefix_sum_bgl,
-                pre_cull_bgl: &global_resources.pre_cull_bgl,
-                output_bgl: &global_resources.object_output_bgl,
-                object_count: object_count as _,
-                name: String::from("camera pass"),
-            });
-
             let mut object_bgb = BindGroupBuilder::new(Some(String::from("object bg")));
             object_bgb.append(cull_data.output_buffer.as_entire_binding());
             let object_bg = object_bgb.build(&renderer.device, &global_resources.object_data_bgl);
